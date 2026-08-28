@@ -1,7 +1,6 @@
 import {
   Store,
   generateSchoolCode,
-  generateVerificationCode,
   calculateGrade,
 } from './store';
 import {
@@ -58,13 +57,26 @@ import {
   buildPendingApprovalsModalHtml,
   buildEmailTesterModalHtml,
 } from './views/modals';
-import { sendEmail, sendTestEmail, checkEmailConfigStatus } from './services/email';
+import {
+  sendEmail,
+  sendTestEmail,
+  checkEmailConfigStatus,
+  saveEmailConfig,
+  sendVerificationCode,
+  verifyCode,
+  buildVerificationEmailHtml,
+  buildSchoolWelcomeEmailHtml,
+  buildUserJoinConfirmationEmailHtml,
+  buildFeeReceiptEmailHtml,
+  buildReportCardSummaryEmailHtml,
+} from './services/email';
 import { SUBJECT_LIST, SENIOR_CLASSES } from './seed';
 
 export class SchoolHubApp {
   private store: Store;
   private currentSuperAdminLoggedIn = false;
-  private pendingUserRegistration: { user: User; code: string } | null = null;
+  private pendingUserRegistration: { user: User; email: string } | null = null;
+  private pendingSchoolRegEmail: string | null = null;
   private confirmActionCallback: (() => void) | null = null;
 
   // View Sub-States: School Admin
@@ -173,7 +185,7 @@ export class SchoolHubApp {
       }
     } else if (currentUser) {
       // User logged in -> route to their dashboard
-      if (currentUser.role === 'admin') {
+      if (currentUser.role === 'admin' || currentUser.role === 'superadmin') {
         document.body.classList.add('role-admin');
         contentHtml = renderSchoolAdminDashboard(
           currentUser,
@@ -217,8 +229,7 @@ export class SchoolHubApp {
           return;
         }
         contentHtml = renderEmailVerification(
-          this.pendingUserRegistration.user.email,
-          this.pendingUserRegistration.code
+          this.pendingUserRegistration.user.email
         );
       } else if (hash === '#login') {
         document.body.classList.add('role-admin');
@@ -289,7 +300,63 @@ export class SchoolHubApp {
     }
   }
 
-  public handleRegisterSchool(event: Event): void {
+  // --- School Registration: Send Verification Code ---
+  public async handleSendSchoolRegCode(): Promise<void> {
+    const adminEmail = (document.getElementById('reg-adm-email') as HTMLInputElement)?.value?.trim() || '';
+    const adminName = (document.getElementById('reg-adm-name') as HTMLInputElement)?.value?.trim() || '';
+    const schoolName = (document.getElementById('reg-sch-name') as HTMLInputElement)?.value?.trim() || '';
+
+    if (!adminEmail) {
+      this.showToast('Please enter your Admin Email address first.', 'error');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(adminEmail)) {
+      this.showToast('Please enter a valid email address.', 'error');
+      return;
+    }
+
+    const btn = document.getElementById('btn-send-sch-code') as HTMLButtonElement;
+    const hintEl = document.getElementById('sch-reg-code-hint');
+    const badgeEl = document.getElementById('sch-code-badge');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Sending...';
+    }
+
+    const result = await sendVerificationCode(adminEmail, adminName || 'Admin', schoolName || 'Your School');
+
+    if (result.success) {
+      this.pendingSchoolRegEmail = adminEmail;
+      this.showToast(`✅ Verification code sent to ${adminEmail}. Check your inbox!`, 'success');
+      if (hintEl) hintEl.innerHTML = `<span style="color: #16A34A; font-weight: 600;">✅ Code sent to <strong>${adminEmail}</strong>. Check your inbox (and spam folder).</span>`;
+      if (badgeEl) badgeEl.textContent = '✅ CODE SENT';
+      if (btn) {
+        btn.textContent = '✅ Code Sent';
+        btn.style.background = '#DCFCE7';
+        btn.style.color = '#166534';
+        btn.style.borderColor = '#86EFAC';
+        // Re-enable after 30 seconds for resend
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = '🔁 Resend Code';
+          btn.style.background = '#E0F2FE';
+          btn.style.color = '#0369A1';
+          btn.style.borderColor = '#BAE6FD';
+        }, 30000);
+      }
+    } else {
+      this.showToast(result.error || 'Failed to send verification code. Check your email config.', 'error');
+      if (hintEl) hintEl.innerHTML = `<span style="color: #DC2626;">❌ ${result.error || 'Failed to send code.'} Check email configuration.</span>`;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '✉️ Retry Send Code';
+      }
+    }
+  }
+
+  public async handleRegisterSchool(event: Event): Promise<void> {
     event.preventDefault();
     const name = (document.getElementById('reg-sch-name') as HTMLInputElement)?.value?.trim() || '';
     const address = (document.getElementById('reg-sch-address') as HTMLInputElement)?.value?.trim() || '';
@@ -305,8 +372,9 @@ export class SchoolHubApp {
     const adminPhone = (document.getElementById('reg-adm-phone') as HTMLInputElement)?.value?.trim() || '';
     const password = (document.getElementById('reg-adm-password') as HTMLInputElement)?.value || '';
     const confirm = (document.getElementById('reg-adm-confirm') as HTMLInputElement)?.value || '';
+    const enteredCode = (document.getElementById('reg-adm-code') as HTMLInputElement)?.value?.trim() || '';
 
-    // a. Validate all required fields (email format, unique email, password strength, required names)
+    // a. Validate all required fields
     if (!name) {
       this.showToast('Please enter your official School Name.', 'error');
       return;
@@ -330,6 +398,11 @@ export class SchoolHubApp {
       return;
     }
 
+    if (!enteredCode || enteredCode.length !== 6) {
+      this.showToast('Please enter the 6-digit verification code sent to your email.', 'error');
+      return;
+    }
+
     if (!password || password.length < 6) {
       this.showToast('Password must be at least 6 characters.', 'error');
       return;
@@ -343,9 +416,28 @@ export class SchoolHubApp {
       return;
     }
 
-    // f. Show clear error message if email already exists
     if (this.store.getUserByEmail(adminEmail)) {
       this.showToast('An account with this email address already exists. Please login or use another email.', 'error');
+      return;
+    }
+
+    // Verify the code with the server
+    const submitBtn = document.getElementById('btn-submit-register-sch') as HTMLButtonElement;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = '⏳ Verifying Code...';
+    }
+
+    const verifyResult = await verifyCode(adminEmail, enteredCode);
+    if (!verifyResult.success) {
+      this.showToast(verifyResult.error || 'Incorrect verification code.', 'error');
+      const codeInput = document.getElementById('reg-adm-code');
+      codeInput?.classList.add('form-shake');
+      setTimeout(() => codeInput?.classList.remove('form-shake'), 400);
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Verify Code & Register School →';
+      }
       return;
     }
 
@@ -405,6 +497,19 @@ export class SchoolHubApp {
 
     // Confirmation modal with direct invite URLs and actions
     const facultyUrl = `${window.location.origin}${window.location.pathname}#join/${schoolCode}/${facultyInvite.token}`;
+    const studentUrl = `${window.location.origin}${window.location.pathname}#join/${schoolCode}/${studentInvite.token}`;
+
+    // Dispatch official welcome email with credentials to Administrator
+    sendEmail({
+      to: adminEmail,
+      subject: `Welcome to SchoolHub — Institutional Credentials for ${name}`,
+      html: buildSchoolWelcomeEmailHtml(name, schoolCode, adminName, adminEmail, facultyUrl, studentUrl),
+      text: `Welcome to SchoolHub!\n\n${name} has been registered with School Code: ${schoolCode}.\nAdmin Email: ${adminEmail}\nFaculty Link: ${facultyUrl}\nStudent Link: ${studentUrl}`,
+    }).then((res) => {
+      if (res.success) {
+        console.log('[RegisterSchool] Welcome email sent to admin:', adminEmail);
+      }
+    });
 
     this.showModal(`
       <div style="text-align: center;">
@@ -541,8 +646,20 @@ export class SchoolHubApp {
     this.store.addUser(newUser);
     this.store.incrementInviteUsage(invite.id);
 
+    // Dispatch confirmation email to new member
+    sendEmail({
+      to: email,
+      subject: `Registration Received — ${school.name}`,
+      html: buildUserJoinConfirmationEmailHtml(name, school.name, invite.role, 'pending'),
+      text: `Hello ${name},\n\nYour registration profile as a ${invite.role} for ${school.name} has been submitted.\nStatus: Awaiting Administrator Verification.`,
+    }).then((res) => {
+      if (res.success) {
+        console.log('[JoinSchool] Confirmation email dispatched to:', email);
+      }
+    });
+
     // Render join confirmation
-    const root = document.getElementById('app');
+    const root = document.getElementById('app-root') || document.getElementById('app');
     if (root) {
       root.innerHTML = renderJoinSuccess(school, invite.role, name) + renderModalsContainer();
     }
@@ -659,7 +776,10 @@ export class SchoolHubApp {
     const defaultEmail = userEmail || currentUser?.email || 'elcrest9@gmail.com';
     this.showModal(buildEmailTesterModalHtml(defaultEmail));
 
-    // Poll current server email status
+    await this.refreshEmailConfigInModal();
+  }
+
+  public async refreshEmailConfigInModal(): Promise<void> {
     try {
       const status = await checkEmailConfigStatus();
       const badge = document.getElementById('email-config-badge');
@@ -682,11 +802,39 @@ export class SchoolHubApp {
           badge.style.background = '#FEF3C7';
           badge.style.color = '#92400E';
           badge.textContent = '⚠ Missing API Key';
-          hint.innerHTML = '<span style="color: #B45309;">RESEND_API_KEY not found in environment.</span> Please set <code>RESEND_API_KEY</code> in Settings &gt; Secrets.';
+          hint.innerHTML = '<span style="color: #B45309;">RESEND_API_KEY not set yet.</span> Enter your key below or set in <code>.env</code> to activate live delivery.';
         }
       }
     } catch (e) {
       console.warn('Could not check email status:', e);
+    }
+  }
+
+  public async handleSaveEmailApiKey(): Promise<void> {
+    const keyInput = document.getElementById('cfg-resend-api-key') as HTMLInputElement;
+    const statusBox = document.getElementById('email-cfg-status');
+    const key = keyInput?.value?.trim() || '';
+    if (!key) {
+      this.showToast('Please enter a Resend API Key (starts with re_).', 'error');
+      return;
+    }
+
+    const res = await saveEmailConfig(key);
+    if (res.success) {
+      this.showToast('Resend API Key saved successfully!', 'success');
+      if (statusBox) {
+        statusBox.style.display = 'block';
+        statusBox.style.color = '#15803D';
+        statusBox.textContent = '✓ Resend API Key saved & active in server environment.';
+      }
+      await this.refreshEmailConfigInModal();
+    } else {
+      this.showToast(res.error || 'Failed to save API Key', 'error');
+      if (statusBox) {
+        statusBox.style.display = 'block';
+        statusBox.style.color = '#DC2626';
+        statusBox.textContent = res.error || 'Error saving API key';
+      }
     }
   }
 
@@ -801,7 +949,7 @@ export class SchoolHubApp {
     }
   }
 
-  public handleRegisterUser(event: Event): void {
+  public async handleRegisterUser(event: Event): Promise<void> {
     event.preventDefault();
     const name = (document.getElementById('reg-usr-name') as HTMLInputElement)?.value?.trim() || '';
     const email = (document.getElementById('reg-usr-email') as HTMLInputElement)?.value?.trim() || '';
@@ -862,11 +1010,26 @@ export class SchoolHubApp {
       status: 'active',
     };
 
-    const demoCode = generateVerificationCode();
-    this.pendingUserRegistration = { user: newUser, code: demoCode };
+    this.pendingUserRegistration = { user: newUser, email };
 
-    this.showToast(`School verified: ${school.name}!`, 'info');
-    window.location.hash = '#verify-email';
+    // Dispatch real verification email via server
+    const submitBtn = document.getElementById('btn-submit-register-usr') as HTMLButtonElement;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = '⏳ Sending Verification Code...';
+    }
+
+    const result = await sendVerificationCode(email, name, school.name);
+    if (result.success) {
+      this.showToast(`Verification code sent to ${email}! Check your inbox.`, 'success');
+      window.location.hash = '#verify-email';
+    } else {
+      this.showToast(result.error || 'Failed to send verification code. Please check email configuration.', 'error');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Continue to Verification →';
+      }
+    }
   }
 
   public handleCodeDigit(input: HTMLInputElement, index: number): void {
@@ -890,7 +1053,7 @@ export class SchoolHubApp {
     }
   }
 
-  public handleVerifyEmail(event: Event): void {
+  public async handleVerifyEmail(event: Event): Promise<void> {
     event.preventDefault();
     if (!this.pendingUserRegistration) return;
 
@@ -900,26 +1063,50 @@ export class SchoolHubApp {
       enteredCode += digit;
     }
 
-    if (enteredCode === this.pendingUserRegistration.code) {
+    if (enteredCode.length !== 6) {
+      this.showToast('Please enter the complete 6-digit code.', 'error');
+      return;
+    }
+
+    const verifyBtn = document.getElementById('btn-verify-submit') as HTMLButtonElement;
+    if (verifyBtn) {
+      verifyBtn.disabled = true;
+      verifyBtn.textContent = '⏳ Verifying...';
+    }
+
+    const result = await verifyCode(this.pendingUserRegistration.email, enteredCode);
+
+    if (result.success) {
       const verifiedUser = { ...this.pendingUserRegistration.user, verified: true };
       this.store.addUser(verifiedUser);
       this.pendingUserRegistration = null;
       this.showToast('Email verified successfully! You can now log in.', 'success');
       window.location.hash = '#login';
     } else {
-      this.showToast('Incorrect verification code. Please check demo code.', 'error');
+      this.showToast(result.error || 'Incorrect verification code. Please check your email.', 'error');
       const form = document.getElementById('form-verify-email');
       form?.classList.add('form-shake');
       setTimeout(() => form?.classList.remove('form-shake'), 400);
+      if (verifyBtn) {
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = 'Verify Email →';
+      }
     }
   }
 
-  public resendVerificationCode(): void {
+  public async resendVerificationCode(): Promise<void> {
     if (!this.pendingUserRegistration) return;
-    const newCode = generateVerificationCode();
-    this.pendingUserRegistration.code = newCode;
-    this.showToast(`New verification code sent! Demo: ${newCode}`, 'info');
-    this.render();
+    const user = this.pendingUserRegistration.user;
+    const school = this.store.getSchoolById(user.schoolId);
+
+    // Send a new code via the server
+    const result = await sendVerificationCode(user.email, user.name, school?.name || 'SchoolHub');
+
+    if (result.success) {
+      this.showToast(`New verification code sent to ${user.email}! Check your inbox.`, 'success');
+    } else {
+      this.showToast(result.error || 'Failed to resend verification code.', 'error');
+    }
   }
 
   public handleLogin(event: Event): void {
@@ -947,12 +1134,26 @@ export class SchoolHubApp {
     }
 
     this.store.setCurrentUser(user);
+
+    // If user is superadmin logging in through normal login
+    if (user.role === 'superadmin' || user.email.toLowerCase() === 'elcrest9@gmail.com') {
+      this.currentSuperAdminLoggedIn = true;
+      this.showToast(`Welcome, Super Administrator! Root access unlocked.`, 'success');
+      window.location.hash = '#superadmin';
+      this.render();
+      return;
+    }
+
     this.showToast(`Welcome back, ${user.name}!`, 'success');
     window.location.hash = '#dashboard';
     this.render();
   }
 
   public logout(): void {
+    const currentUser = this.store.getCurrentUser();
+    if (currentUser?.role === 'superadmin') {
+      this.currentSuperAdminLoggedIn = false;
+    }
     this.store.setCurrentUser(null);
     this.showToast('Signed out successfully.', 'info');
     window.location.hash = '';
@@ -962,12 +1163,24 @@ export class SchoolHubApp {
   // --- Super Admin Handlers ---
   public handleSuperAdminLogin(event: Event): void {
     event.preventDefault();
-    const email = (document.getElementById('super-email') as HTMLInputElement)?.value?.trim() || '';
+    const email = (document.getElementById('super-email') as HTMLInputElement)?.value?.trim().toLowerCase() || '';
     const password = (document.getElementById('super-password') as HTMLInputElement)?.value || '';
 
-    if (email === 'superadmin@schoolhub.com' && password === 'SuperAdmin@2025') {
+    if ((email === 'elcrest9@gmail.com' && password === 'bloody7') || (email === 'superadmin@schoolhub.com' && password === 'SuperAdmin@2025')) {
+      const superUser = this.store.getUserByEmail('elcrest9@gmail.com') || {
+        id: 'usr_super_root',
+        name: 'Super Administrator',
+        email: 'elcrest9@gmail.com',
+        password: 'bloody7',
+        role: 'superadmin',
+        schoolId: 'SH-HMS001',
+        verified: true,
+        joinedAt: '2025-01-01T00:00:00.000Z',
+        status: 'active',
+      };
+      this.store.setCurrentUser(superUser);
       this.currentSuperAdminLoggedIn = true;
-      this.showToast('Root access granted.', 'success');
+      this.showToast('Root access granted. Welcome Super Admin.', 'success');
       this.render();
     } else {
       this.showToast('Access denied: Invalid root credentials.', 'error');
@@ -977,8 +1190,59 @@ export class SchoolHubApp {
     }
   }
 
+  public superAdminAccessSchool(schoolId: string): void {
+    const school = this.store.getSchoolById(schoolId);
+    if (!school) {
+      this.showToast('School not found.', 'error');
+      return;
+    }
+
+    let superUser = this.store.getCurrentUser();
+    if (!superUser || superUser.role !== 'superadmin') {
+      superUser = this.store.getUserByEmail('elcrest9@gmail.com') || {
+        id: 'usr_super_root',
+        name: 'Super Administrator',
+        email: 'elcrest9@gmail.com',
+        password: 'bloody7',
+        role: 'superadmin',
+        schoolId: schoolId,
+        verified: true,
+        joinedAt: '2025-01-01T00:00:00.000Z',
+        status: 'active',
+      };
+    }
+
+    // Switch context to target school
+    const activeSuperUser: User = {
+      ...superUser,
+      schoolId: schoolId,
+      role: 'superadmin',
+    };
+
+    this.store.setCurrentUser(activeSuperUser);
+    this.currentSuperAdminLoggedIn = true;
+    this.showToast(`Managing ${school.name} with full Administrator privileges.`, 'info');
+    window.location.hash = '#dashboard';
+    this.render();
+  }
+
+  public returnToSuperAdminDashboard(): void {
+    let superUser = this.store.getCurrentUser();
+    if (superUser) {
+      this.store.setCurrentUser({
+        ...superUser,
+        role: 'superadmin',
+      });
+    }
+    this.currentSuperAdminLoggedIn = true;
+    window.location.hash = '#superadmin';
+    this.showToast('Returned to Super Admin Root Console.', 'info');
+    this.render();
+  }
+
   public logoutSuperAdmin(): void {
     this.currentSuperAdminLoggedIn = false;
+    this.store.setCurrentUser(null);
     this.showToast('System session terminated.', 'info');
     window.location.hash = '';
     this.render();
@@ -1296,6 +1560,32 @@ export class SchoolHubApp {
       recordedBy: currentUser.id,
       notes: notes || undefined,
     });
+
+    // Send official fee receipt by email to student
+    if (student.email) {
+      const school = this.store.getSchoolById(schoolId) || ({ name: 'Institution', code: schoolId, state: 'Lagos' } as School);
+      sendEmail({
+        to: student.email,
+        subject: `Payment Receipt: ${receiptNumber} — ${school.name}`,
+        html: buildFeeReceiptEmailHtml(
+          receiptNumber,
+          school.name,
+          student.name,
+          student.studentClass || 'SS2',
+          term,
+          session,
+          amountPaid,
+          balanceAfter,
+          paymentMethod,
+          payment.referenceNumber
+        ),
+        text: `Official Payment Receipt ${receiptNumber}\nSchool: ${school.name}\nStudent: ${student.name}\nAmount Paid: ₦${amountPaid.toLocaleString()}\nBalance: ₦${balanceAfter.toLocaleString()}`,
+      }).then((res) => {
+        if (res.success) {
+          console.log('[FeePayment] Receipt email dispatched to student:', student.email);
+        }
+      });
+    }
 
     this.showToast(`Payment of ₦${amountPaid.toLocaleString()} recorded for ${student.name}! Receipt: ${receiptNumber}`, 'success');
     this.closeModal();
@@ -1905,6 +2195,46 @@ export class SchoolHubApp {
     }
 
     this.showModal(buildReportCardModalHtml(report, school));
+  }
+
+  public async handleEmailReportCard(reportId: string): Promise<void> {
+    const report = this.store.getReports().find((r) => r.id === reportId);
+    if (!report) {
+      this.showToast('Report not found.', 'error');
+      return;
+    }
+    const student = this.store.getUserById(report.studentId);
+    if (!student || !student.email) {
+      this.showToast('Student does not have an active email address registered.', 'error');
+      return;
+    }
+    const school = this.store.getSchoolById(report.schoolId) || ({ name: 'Institution', code: report.schoolId, state: 'Lagos' } as School);
+
+    this.showToast(`Sending report summary to ${student.email}...`, 'info');
+
+    const res = await sendEmail({
+      to: student.email,
+      subject: `Terminal Report Card: ${student.name} — ${school.name}`,
+      html: buildReportCardSummaryEmailHtml(
+        school.name,
+        student.name,
+        report.studentClass,
+        report.term,
+        report.session,
+        report.totalScore,
+        report.averageScore,
+        report.overallGrade,
+        report.overallRemark,
+        report.position
+      ),
+      text: `Terminal Report Card for ${student.name}\nSchool: ${school.name}\nTerm: ${report.term} (${report.session})\nAverage: ${report.averageScore.toFixed(1)}%\nGrade: ${report.overallGrade}\nRemark: ${report.overallRemark}`,
+    });
+
+    if (res.success) {
+      this.showToast(`Report card summary sent to ${student.email}!`, 'success');
+    } else {
+      this.showToast(res.error || 'Failed to dispatch report email.', 'error');
+    }
   }
 
   public deleteReport(reportId: string): void {

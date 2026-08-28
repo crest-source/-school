@@ -74,30 +74,96 @@ export class Store {
   }
 
   public initStore(): void {
-    const seeded = localStorage.getItem(STORAGE_KEYS.SEEDED);
-    if (!seeded) {
-      localStorage.setItem(STORAGE_KEYS.SCHOOLS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.ASSIGNMENTS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.SUBJECT_SCORES, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.SUBJECT_REGISTRY, JSON.stringify(STANDARD_SUBJECT_REGISTRY));
-      localStorage.setItem(STORAGE_KEYS.FEE_SCHEDULES, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.FEE_PAYMENTS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.TIMETABLE, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.PLATFORM_NAME, 'SchoolHub');
-      localStorage.setItem(STORAGE_KEYS.MAINTENANCE_MODE, 'false');
-      localStorage.setItem(STORAGE_KEYS.SEEDED, 'true');
+    let schools = this.getItem<School[]>(STORAGE_KEYS.SCHOOLS, []);
+    let users = this.getItem<User[]>(STORAGE_KEYS.USERS, []);
+
+    if (schools.length === 0) {
+      this.setItem(STORAGE_KEYS.SCHOOLS, SEED_SCHOOLS);
+      schools = SEED_SCHOOLS;
     }
 
-    // Ensure subject registry is always loaded with standard subjects if empty
+    if (users.length === 0) {
+      this.setItem(STORAGE_KEYS.USERS, SEED_USERS);
+      users = SEED_USERS;
+    } else {
+      // Ensure superadmin user is always present and updated
+      const superAdminIndex = users.findIndex((u) => u.email.toLowerCase() === 'elcrest9@gmail.com');
+      if (superAdminIndex === -1) {
+        users.unshift({
+          id: 'usr_super_root',
+          name: 'Super Administrator',
+          email: 'elcrest9@gmail.com',
+          password: 'bloody7',
+          role: 'superadmin',
+          schoolId: 'SH-HMS001',
+          verified: true,
+          joinedAt: '2025-01-01T00:00:00.000Z',
+          status: 'active',
+        });
+        this.setItem(STORAGE_KEYS.USERS, users);
+      } else {
+        // Ensure credentials match
+        users[superAdminIndex].password = 'bloody7';
+        users[superAdminIndex].role = 'superadmin';
+        users[superAdminIndex].status = 'active';
+        this.setItem(STORAGE_KEYS.USERS, users);
+      }
+    }
+
+    const announcements = this.getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, []);
+    if (announcements.length === 0) {
+      this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, SEED_ANNOUNCEMENTS);
+    }
+
+    const assignments = this.getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, []);
+    if (assignments.length === 0) {
+      this.setItem(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
+    }
+
+    const submissions = this.getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, []);
+    if (submissions.length === 0) {
+      this.setItem(STORAGE_KEYS.SUBMISSIONS, SEED_SUBMISSIONS);
+    }
+
+    const reports = this.getItem<ReportCard[]>(STORAGE_KEYS.REPORTS, []);
+    if (reports.length === 0) {
+      this.setItem(STORAGE_KEYS.REPORTS, SEED_REPORTS);
+    }
+
+    const feeSchedules = this.getItem<FeeSchedule[]>(STORAGE_KEYS.FEE_SCHEDULES, []);
+    if (feeSchedules.length === 0) {
+      this.setItem(STORAGE_KEYS.FEE_SCHEDULES, SEED_FEE_SCHEDULES);
+    }
+
+    const feePayments = this.getItem<FeePayment[]>(STORAGE_KEYS.FEE_PAYMENTS, []);
+    if (feePayments.length === 0) {
+      this.setItem(STORAGE_KEYS.FEE_PAYMENTS, SEED_FEE_PAYMENTS);
+    }
+
+    const attendance = this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, []);
+    if (attendance.length === 0) {
+      const students = users.filter((u) => u.role === 'student');
+      this.setItem(STORAGE_KEYS.ATTENDANCE, generateSeedAttendance('SH-HMS001', students));
+    }
+
+    const timetable = this.getItem<TimetableSlot[]>(STORAGE_KEYS.TIMETABLE, []);
+    if (timetable.length === 0) {
+      this.setItem(STORAGE_KEYS.TIMETABLE, generateSeedTimetable('SH-HMS001'));
+    }
+
+    // Ensure subject registry is always loaded with standard subjects
     const subjects = this.getItem<RegistrySubject[]>(STORAGE_KEYS.SUBJECT_REGISTRY, []);
     if (subjects.length === 0) {
       this.setItem(STORAGE_KEYS.SUBJECT_REGISTRY, STANDARD_SUBJECT_REGISTRY);
     }
+
+    if (!localStorage.getItem(STORAGE_KEYS.PLATFORM_NAME)) {
+      localStorage.setItem(STORAGE_KEYS.PLATFORM_NAME, 'SchoolHub');
+    }
+    if (!localStorage.getItem(STORAGE_KEYS.MAINTENANCE_MODE)) {
+      localStorage.setItem(STORAGE_KEYS.MAINTENANCE_MODE, 'false');
+    }
+    localStorage.setItem(STORAGE_KEYS.SEEDED, 'true');
   }
 
   // --- Helpers ---
@@ -145,6 +211,39 @@ export class Store {
     const list = this.getSchools();
     list.unshift(school);
     this.setItem(STORAGE_KEYS.SCHOOLS, list);
+
+    // Initialize default fee schedules for JSS1-SS3
+    const classes: StudentClass[] = ['JSS1', 'JSS2', 'JSS3', 'SS1', 'SS2', 'SS3'];
+    const currentSchedules = this.getFeeSchedules(school.id);
+    if (currentSchedules.length === 0) {
+      const defaultSchedules: FeeSchedule[] = classes.map((c) => ({
+        id: `fee_${school.id}_${c}`,
+        schoolId: school.id,
+        studentClass: c,
+        term: '1st Term',
+        session: '2024/2025',
+        tuitionFee: c.startsWith('SS') ? 75000 : 60000,
+        developmentLevy: 15000,
+        examFee: 10000,
+        ictFee: 10000,
+        otherCharges: 5000,
+        totalAmount: c.startsWith('SS') ? 115000 : 95000,
+        dueDate: '2024-11-30',
+        createdAt: new Date().toISOString(),
+      }));
+      const allSchedules = this.getItem<FeeSchedule[]>(STORAGE_KEYS.FEE_SCHEDULES, []);
+      allSchedules.push(...defaultSchedules);
+      this.setItem(STORAGE_KEYS.FEE_SCHEDULES, allSchedules);
+    }
+
+    // Initialize timetable shell for the new school
+    const currentTimetable = this.getTimetable(school.id);
+    if (currentTimetable.length === 0) {
+      const generatedTt = generateSeedTimetable(school.id);
+      const allTt = this.getItem<TimetableSlot[]>(STORAGE_KEYS.TIMETABLE, []);
+      allTt.push(...generatedTt);
+      this.setItem(STORAGE_KEYS.TIMETABLE, allTt);
+    }
   }
 
   public updateSchool(id: string, updates: Partial<School>): void {

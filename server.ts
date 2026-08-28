@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
@@ -9,7 +10,7 @@ dotenv.config();
 let resendClient: Resend | null = null;
 
 function getResendClient(): { client: Resend | null; apiKey: string | null } {
-  const apiKey = process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY || '';
+  const apiKey = (process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY || '').trim();
   if (!apiKey) {
     return { client: null, apiKey: null };
   }
@@ -17,6 +18,30 @@ function getResendClient(): { client: Resend | null; apiKey: string | null } {
     resendClient = new Resend(apiKey);
   }
   return { client: resendClient, apiKey };
+}
+
+export function updateResendApiKey(newKey: string, newFrom?: string): void {
+  const trimmed = (newKey || '').trim();
+  process.env.RESEND_API_KEY = trimmed;
+  if (trimmed) {
+    resendClient = new Resend(trimmed);
+  } else {
+    resendClient = null;
+  }
+  if (newFrom && newFrom.trim()) {
+    process.env.EMAIL_FROM = newFrom.trim();
+  }
+
+  // Persist to .env file
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    const sender = process.env.EMAIL_FROM || 'SchoolHub <onboarding@resend.dev>';
+    const envContent = `# SchoolHub Environment Configuration\nRESEND_API_KEY=${trimmed}\nEMAIL_FROM="${sender}"\n`;
+    fs.writeFileSync(envPath, envContent, 'utf-8');
+    console.log('[Server] Saved updated RESEND_API_KEY and EMAIL_FROM to .env');
+  } catch (e) {
+    console.warn('[Server] Could not write to .env file:', e);
+  }
 }
 
 export interface SendEmailPayload {
@@ -103,8 +128,35 @@ async function startServer() {
       sender: defaultFrom,
       instructions: isConfigured
         ? 'Email provider is configured and active.'
-        : 'Set RESEND_API_KEY in your environment to enable real email delivery.',
+        : 'Set RESEND_API_KEY in your environment or via the diagnostics console to enable real email delivery.',
     });
+  });
+
+  // API Route: Save or Update Resend API Key Configuration
+  app.post('/api/email/config', (req, res) => {
+    try {
+      const { apiKey, from } = req.body || {};
+      if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Please provide a valid RESEND_API_KEY (starts with re_).',
+        });
+      }
+
+      updateResendApiKey(apiKey, from);
+      return res.json({
+        success: true,
+        configured: true,
+        sender: process.env.EMAIL_FROM || 'SchoolHub <onboarding@resend.dev>',
+        message: 'Resend API Key configured and saved successfully.',
+      });
+    } catch (err: any) {
+      console.error('[API /api/email/config] Error:', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Failed to update email configuration.',
+      });
+    }
   });
 
   // API Route: Generic Reusable Send Email
@@ -212,6 +264,169 @@ async function startServer() {
       return res.status(500).json({
         success: false,
         error: err?.message || 'Error executing email test dispatch.',
+      });
+    }
+  });
+
+  // ============================================================
+  // Verification Code Management (Server-Side)
+  // ============================================================
+  const verificationCodes: Map<string, { code: string; expiresAt: number; name: string; schoolName: string }> = new Map();
+
+  function generateCode(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  function cleanupExpiredCodes(): void {
+    const now = Date.now();
+    for (const [key, val] of verificationCodes.entries()) {
+      if (val.expiresAt < now) verificationCodes.delete(key);
+    }
+  }
+
+  // API Route: Send Verification Code to Email
+  app.post('/api/email/send-verification', async (req, res) => {
+    try {
+      cleanupExpiredCodes();
+      const { email, name, schoolName } = req.body || {};
+      if (!email) {
+        return res.status(400).json({ success: false, error: 'Email address is required.' });
+      }
+
+      const code = generateCode();
+      const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+      verificationCodes.set(email.toLowerCase().trim(), { code, expiresAt, name: name || 'User', schoolName: schoolName || 'SchoolHub' });
+
+      console.log(`[VerifyService] Generated code ${code} for ${email} (expires in 15 min)`);
+
+      // Build verification email HTML
+      const verificationHtml = `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Your SchoolHub Verification Code</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #F8FAFC; margin: 0; padding: 24px 12px; color: #1E293B; }
+            .wrapper { max-width: 580px; margin: 0 auto; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+            .header { background: #0369A1; padding: 28px 24px; text-align: center; color: #FFFFFF; }
+            .content { padding: 32px 24px; }
+            .footer { background: #F8FAFC; padding: 20px 24px; text-align: center; font-size: 12px; color: #64748B; border-top: 1px solid #E2E8F0; }
+            .code-box { background: #F0F9FF; border: 2px dashed #0369A1; border-radius: 8px; padding: 18px; text-align: center; margin: 24px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="wrapper">
+            <div class="header">
+              <div style="font-size: 32px; margin-bottom: 6px;">🎓</div>
+              <h1 style="margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">SchoolHub Nigeria</h1>
+              <p style="margin: 4px 0 0 0; opacity: 0.9; font-size: 13px;">Institutional Portal & Academic Management</p>
+            </div>
+            <div class="content">
+              <div style="text-align: center; margin-bottom: 20px;">
+                <span style="display: inline-block; background: #E0F2FE; color: #0369A1; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 20px; text-transform: uppercase;">
+                  Account Verification
+                </span>
+              </div>
+              <h2 style="font-size: 20px; color: #0F172A; margin: 0 0 12px 0;">Verify Your Email Address</h2>
+              <p style="font-size: 15px; line-height: 1.6; color: #334155; margin: 0 0 16px 0;">
+                Hello <strong>${name || 'User'}</strong>,<br/>
+                Thank you for registering on SchoolHub for <strong>${schoolName || 'your school'}</strong>. Please use the 6-digit security code below to complete your email verification:
+              </p>
+              <div class="code-box">
+                <div style="font-size: 12px; font-weight: 700; color: #0369A1; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 1px;">Your 6-Digit Verification Code</div>
+                <div style="font-size: 36px; font-weight: 800; color: #0369A1; letter-spacing: 8px; font-family: monospace;">${code}</div>
+                <div style="font-size: 12px; color: #64748B; margin-top: 8px;">Valid for 15 minutes. Never share this code with anyone.</div>
+              </div>
+              <p style="font-size: 13px; line-height: 1.5; color: #64748B; margin: 0;">
+                If you did not initiate this account creation request, you can safely disregard this email.
+              </p>
+            </div>
+            <div class="footer">
+              <p style="margin: 0 0 6px 0;">&copy; ${new Date().getFullYear()} SchoolHub. Supporting primary and secondary education across Nigeria.</p>
+              <p style="margin: 0; font-size: 11px; opacity: 0.8;">This is an automated institutional message. Please do not reply directly to this email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const result = await sendEmailService({
+        to: email,
+        subject: `Your SchoolHub Verification Code — ${schoolName || 'SchoolHub'}`,
+        html: verificationHtml,
+        text: `Hello ${name || 'User'},\n\nYour SchoolHub verification code for ${schoolName || 'your school'} is: ${code}.\n\nThis code is valid for 15 minutes. Enter it on the registration page to complete your verification.\n\nIf you did not request this, please ignore this email.`,
+      });
+
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          error: result.error || 'Failed to send verification email.',
+          provider: result.provider,
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: `Verification code sent to ${email}`,
+        messageId: result.messageId,
+        provider: result.provider,
+      });
+    } catch (err: any) {
+      console.error('[API /api/email/send-verification] Error:', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Failed to send verification code.',
+      });
+    }
+  });
+
+  // API Route: Verify a Submitted Code
+  app.post('/api/email/verify-code', (req, res) => {
+    try {
+      cleanupExpiredCodes();
+      const { email, code } = req.body || {};
+      if (!email || !code) {
+        return res.status(400).json({ success: false, error: 'Email and code are required.' });
+      }
+
+      const key = email.toLowerCase().trim();
+      const stored = verificationCodes.get(key);
+
+      if (!stored) {
+        return res.json({
+          success: false,
+          error: 'No verification code found for this email. Please request a new code.',
+        });
+      }
+
+      if (stored.expiresAt < Date.now()) {
+        verificationCodes.delete(key);
+        return res.json({
+          success: false,
+          error: 'Verification code has expired. Please request a new code.',
+        });
+      }
+
+      if (stored.code !== code.trim()) {
+        return res.json({
+          success: false,
+          error: 'Incorrect verification code. Please check your email and try again.',
+        });
+      }
+
+      // Code is valid — remove it so it can't be reused
+      verificationCodes.delete(key);
+      return res.json({
+        success: true,
+        message: 'Email verified successfully.',
+      });
+    } catch (err: any) {
+      console.error('[API /api/email/verify-code] Error:', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Error verifying code.',
       });
     }
   });

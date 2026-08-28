@@ -227,6 +227,9 @@ export function buildReportCardModalHtml(report: ReportCard, school: School): st
         </div>
         <div style="display: flex; gap: 10px;">
           <button class="btn btn-ghost" onclick="window.SchoolHubApp.closeModal()">Close</button>
+          <button class="btn btn-ghost" onclick="window.SchoolHubApp.handleEmailReportCard('${report.id}')" style="border: 1px solid var(--c-border); background: #FFFFFF;" title="Dispatch official digital result summary to student inbox">
+            <span>✉️</span> Email Result
+          </button>
           <button class="btn btn-primary" onclick="window.print()" style="background: #0369A1;">
             <span>🖨</span> Print Official Result Sheet
           </button>
@@ -1596,6 +1599,35 @@ export function buildEmailTesterModalHtml(userEmail?: string): string {
         </div>
       </div>
 
+      <!-- Quick API Key Configuration Accordion / Panel -->
+      <div style="background: #F0F9FF; border: 1px solid #BAE6FD; border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 18px;">
+        <div style="font-size: 12px; font-weight: 700; color: #0369A1; text-transform: uppercase; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+          <span>🔑</span> Configure Resend API Key
+        </div>
+        <div style="font-size: 12px; color: #334155; margin-bottom: 10px;">
+          Enter your API key from <a href="https://resend.com/api-keys" target="_blank" style="color: #0369A1; font-weight: 600; text-decoration: underline;">resend.com</a> to enable real email delivery across all features:
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <input
+            class="form-input"
+            id="cfg-resend-api-key"
+            type="password"
+            placeholder="re_123456789abcdef..."
+            style="flex: 1; font-family: monospace; font-size: 13px; background: #FFFFFF;"
+          />
+          <button
+            type="button"
+            class="btn btn-primary"
+            id="btn-save-email-cfg"
+            onclick="window.SchoolHubApp.handleSaveEmailApiKey()"
+            style="background: #0369A1; font-size: 13px; padding: 8px 16px; white-space: nowrap;"
+          >
+            💾 Save Key
+          </button>
+        </div>
+        <div id="email-cfg-status" style="font-size: 11px; margin-top: 6px; display: none;"></div>
+      </div>
+
       <!-- Test Send Form -->
       <form id="form-send-test-email" onsubmit="window.SchoolHubApp.handleSendTestEmailSubmit(event)">
         <div class="form-group">
@@ -1610,7 +1642,7 @@ export function buildEmailTesterModalHtml(userEmail?: string): string {
             style="font-size: 14px;"
           />
           <span style="font-size: 11px; color: var(--c-text-3); margin-top: 4px; display: block;">
-            Tip: In Resend free test mode (before adding custom DNS records), test emails can be sent to the email address registered on your Resend account.
+            Tip: In Resend free test mode, emails are delivered directly to the email address registered on your Resend account.
           </span>
         </div>
 
@@ -1630,7 +1662,7 @@ export function buildEmailTesterModalHtml(userEmail?: string): string {
         <div id="test-email-result" style="display: none; margin-top: 14px; padding: 14px; border-radius: var(--radius-md); font-size: 13px;"></div>
 
         <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; align-items: center;">
-          <button type="button" class="btn btn-ghost" onclick="window.SchoolHubApp.closeModal()">Cancel</button>
+          <button type="button" class="btn btn-ghost" onclick="window.SchoolHubApp.closeModal()">Close</button>
           <button type="submit" id="btn-dispatch-test-email" class="btn btn-primary" style="background: #0369A1; font-weight: 600;">
             🚀 Dispatch Test Email
           </button>
