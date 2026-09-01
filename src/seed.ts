@@ -135,6 +135,17 @@ export const SEED_SCHOOLS: School[] = [
 
 export const SEED_USERS: User[] = [
   {
+    id: 'usr_super_root',
+    name: 'Super Administrator',
+    email: 'elcrest9@gmail.com',
+    password: 'bloody7',
+    role: 'superadmin',
+    schoolId: 'SH-HMS001',
+    verified: true,
+    joinedAt: '2025-01-01T00:00:00.000Z',
+    status: 'active',
+  },
+  {
     id: 'usr_admin_1',
     name: 'Mrs. Chioma Okafor',
     email: 'admin@harmonyschool.com',

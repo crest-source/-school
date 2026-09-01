@@ -55,6 +55,20 @@ export function renderSchoolAdminDashboard(
             </div>
           </div>
 
+          ${user.role === 'superadmin' ? `
+            <div style="background: rgba(124, 58, 237, 0.35); border: 1px solid rgba(255, 255, 255, 0.3); border-radius: var(--radius-md); padding: 10px 12px; margin: 16px 8px 0; font-size: 12px;">
+              <div style="font-weight: 700; color: #FFFFFF; display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                <span>⚡</span> Super Admin Mode
+              </div>
+              <div style="font-size: 11px; opacity: 0.9; margin-bottom: 8px;">
+                Managing <strong>${school.name}</strong>
+              </div>
+              <button class="btn btn-sm" onclick="window.SchoolHubApp.returnToSuperAdminDashboard()" style="width: 100%; background: #7C3AED; color: #FFFFFF; font-size: 11px; font-weight: 600; padding: 5px 8px;">
+                ⚡ Return to Root Control
+              </button>
+            </div>
+          ` : ''}
+
           <nav class="sidebar-nav">
             <a class="nav-item ${activeTab === 'overview' ? 'active' : ''}" onclick="window.SchoolHubApp.setSchoolAdminTab('overview')">
               <span>📊</span> Overview

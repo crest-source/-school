@@ -38,8 +38,9 @@ export function renderRegisterSchool(): string {
         </div>
       </div>
 
-      <div class="auth-form-side" style="max-height: 92vh; overflow-y: auto;">
-        <div style="margin-bottom: 20px;">
+      <div class="auth-form-side">
+        <div class="auth-form-inner">
+          <div style="margin-bottom: 20px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
             <h1 class="text-heading" style="font-size: 24px; margin: 0;">Register Your School</h1>
             <span class="badge" style="background: #E0F2FE; color: #0369A1; font-size: 11px; font-weight: 600;">Step 1 of 1</span>
@@ -143,8 +144,36 @@ export function renderRegisterSchool(): string {
 
             <div class="form-group">
               <label class="form-label" for="reg-adm-email">Admin Login Email *</label>
-              <input class="form-input" id="reg-adm-email" type="email" placeholder="admin@kingscollege.edu.ng" required />
-              <div style="font-size: 11px; color: var(--c-text-3); margin-top: 3px;">You will use this email to sign in to the School Admin dashboard.</div>
+              <div style="display: flex; gap: 8px;">
+                <input class="form-input" id="reg-adm-email" type="email" placeholder="admin@domain.com" required style="flex: 1;" />
+                <button type="button" class="btn btn-secondary" id="btn-send-sch-code" onclick="window.SchoolHubApp.handleSendSchoolRegCode()" style="white-space: nowrap; font-size: 13px; padding: 8px 14px; background: #E0F2FE; color: #0369A1; border: 1px solid #BAE6FD; font-weight: 600;">
+                  ✉️ Send Code
+                </button>
+              </div>
+              <div id="sch-reg-code-hint" style="font-size: 12px; color: var(--c-text-2); margin-top: 4px;">
+                Click <strong>"Send Code"</strong> to dispatch a 6-digit confirmation code to your email.
+              </div>
+            </div>
+
+            <!-- Email Verification Code Input -->
+            <div class="form-group" id="sch-code-input-group" style="background: #F0F9FF; border: 1px solid #BAE6FD; border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 16px;">
+              <label class="form-label" for="reg-adm-code" style="color: #0369A1; font-weight: 700; display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                <span>🔒 6-Digit Email Verification Code *</span>
+                <span id="sch-code-badge" style="font-size: 11px; font-weight: 600; color: #0369A1;"></span>
+              </label>
+              <input
+                class="form-input"
+                id="reg-adm-code"
+                type="text"
+                maxlength="6"
+                placeholder="Enter or paste 6-digit code"
+                style="letter-spacing: 4px; font-size: 18px; font-weight: 700; font-family: monospace; text-align: center; background: #FFFFFF;"
+                required
+              />
+              <div style="font-size: 11px; color: #64748B; margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
+                <span>Paste the 6-digit code received in your email inbox.</span>
+                <a href="#" onclick="window.SchoolHubApp.handleSendSchoolRegCode(); return false;" style="color: #0369A1; font-weight: 600; text-decoration: underline;">Resend Code</a>
+              </div>
             </div>
 
             <div class="input-row">
@@ -160,13 +189,14 @@ export function renderRegisterSchool(): string {
           </div>
 
           <button type="submit" class="btn btn-primary" id="btn-submit-register-sch" style="width: 100%; padding: 13px; background: #0369A1; margin-top: 8px; font-size: 15px; font-weight: 600;">
-            Register School & Launch Dashboard →
+            Verify Code & Register School →
           </button>
         </form>
 
         <div style="margin-top: 20px; text-align: center; font-size: 13px; color: var(--c-text-2);">
           Already registered? <a href="#login" style="color: #0369A1; font-weight: 600;">Sign in to your portal</a>
         </div>
+      </div>
       </div>
     </div>
   `;
@@ -221,8 +251,9 @@ export function renderJoinSchool(invite: SchoolInvite, school: School, store: St
         </div>
       </div>
 
-      <div class="auth-form-side" style="max-height: 92vh; overflow-y: auto;">
-        <div style="margin-bottom: 20px;">
+      <div class="auth-form-side">
+        <div class="auth-form-inner">
+          <div style="margin-bottom: 20px;">
           <h1 class="text-heading" style="font-size: 22px; margin-bottom: 4px;">
             ${isTeacher ? 'Faculty Account Setup' : 'Student Enrollment Setup'}
           </h1>
@@ -340,6 +371,7 @@ export function renderJoinSchool(invite: SchoolInvite, school: School, store: St
           Already have an active account? <a href="#login" style="color: ${brandBg}; font-weight: 600;">Sign in here</a>
         </div>
       </div>
+      </div>
     </div>
   `;
 }
@@ -437,7 +469,8 @@ export function renderRegisterUser(): string {
       </div>
 
       <div class="auth-form-side">
-        <div style="margin-bottom: 24px;">
+        <div class="auth-form-inner">
+          <div style="margin-bottom: 24px;">
           <h1 class="text-heading" style="font-size: 24px; margin-bottom: 6px;">Create Your Account</h1>
           <p class="text-body" style="color: var(--c-text-2);">Join as a teacher or student using your school code.</p>
         </div>
@@ -516,22 +549,23 @@ export function renderRegisterUser(): string {
           Already have an account? <a href="#login" style="color: #0F766E; font-weight: 600;">Sign in</a>
         </div>
       </div>
+      </div>
     </div>
   `;
 }
 
-export function renderEmailVerification(email: string, demoCode: string): string {
+export function renderEmailVerification(email: string): string {
   return `
     <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--c-bg);">
-      <div class="card fade-in" style="max-width: 440px; width: 100%; text-align: center; padding: 36px 28px;">
+      <div class="card fade-in" style="max-width: 460px; width: 100%; text-align: center; padding: 36px 28px;">
         <div style="font-size: 48px; margin-bottom: 12px;">✉️</div>
-        <h1 class="text-heading" style="font-size: 24px; margin-bottom: 8px;">Verify your email</h1>
-        <p class="text-body" style="color: var(--c-text-2); font-size: 14px; margin-bottom: 24px;">
-          Enter the 6-digit code sent to<br/><strong style="color: var(--c-text-1);">${email}</strong>
+        <h1 class="text-heading" style="font-size: 24px; margin-bottom: 8px;">Verify Your Email</h1>
+        <p class="text-body" style="color: var(--c-text-2); font-size: 14px; margin-bottom: 20px;">
+          We have sent a 6-digit verification code to<br/><strong style="color: var(--c-text-1); font-size: 15px;">${email}</strong>
         </p>
 
         <form id="form-verify-email" onsubmit="window.SchoolHubApp.handleVerifyEmail(event)">
-          <div class="verify-inputs">
+          <div class="verify-inputs" style="margin-bottom: 18px;">
             <input type="text" maxlength="1" class="verify-digit" id="code-0" autofocus oninput="window.SchoolHubApp.handleCodeDigit(this, 0)" onkeydown="window.SchoolHubApp.handleCodeKey(event, 0)" required />
             <input type="text" maxlength="1" class="verify-digit" id="code-1" oninput="window.SchoolHubApp.handleCodeDigit(this, 1)" onkeydown="window.SchoolHubApp.handleCodeKey(event, 1)" required />
             <input type="text" maxlength="1" class="verify-digit" id="code-2" oninput="window.SchoolHubApp.handleCodeDigit(this, 2)" onkeydown="window.SchoolHubApp.handleCodeKey(event, 2)" required />
@@ -540,20 +574,19 @@ export function renderEmailVerification(email: string, demoCode: string): string
             <input type="text" maxlength="1" class="verify-digit" id="code-5" oninput="window.SchoolHubApp.handleCodeDigit(this, 5)" onkeydown="window.SchoolHubApp.handleCodeKey(event, 5)" required />
           </div>
 
-          <div style="margin-bottom: 24px;">
-            <span class="badge" style="background: #FEF3C7; color: #92400E; font-size: 12px; padding: 4px 12px; border-radius: var(--radius-xl);">
-              Your demo code: <strong>${demoCode}</strong>
-            </span>
+          <div style="margin-bottom: 22px; font-size: 12px; color: var(--c-text-3);">
+            ⏱️ The code is valid for 15 minutes. Check your inbox and spam/promotions folder.
           </div>
 
-          <button type="submit" class="btn btn-primary" id="btn-verify-submit" style="width: 100%; padding: 12px; background: #0369A1;">
-            Verify Email →
+          <button type="submit" class="btn btn-primary" id="btn-verify-submit" style="width: 100%; padding: 12px; background: #0369A1; font-weight: 600;">
+            Verify Email & Complete Registration →
           </button>
         </form>
 
-        <div style="margin-top: 20px; font-size: 13px;">
-          <a href="#" onclick="window.SchoolHubApp.resendVerificationCode(); return false;" style="color: #0369A1; text-decoration: none; font-weight: 500;">
-            Didn't receive code? Resend
+        <div style="margin-top: 20px; font-size: 13px; color: var(--c-text-2);">
+          Didn't receive the email? 
+          <a href="#" onclick="window.SchoolHubApp.resendVerificationCode(); return false;" style="color: #0369A1; text-decoration: none; font-weight: 600;">
+            Resend Code
           </a>
         </div>
       </div>
@@ -580,7 +613,8 @@ export function renderLogin(lastEmail: string): string {
       </div>
 
       <div class="auth-form-side">
-        <div style="margin-bottom: 28px;">
+        <div class="auth-form-inner">
+          <div style="margin-bottom: 28px;">
           <h1 class="text-heading" style="font-size: 24px; margin-bottom: 6px;">Sign In to SchoolHub</h1>
           <p class="text-body" style="color: var(--c-text-2);">Enter your email and password to enter your dashboard.</p>
         </div>
@@ -609,6 +643,7 @@ export function renderLogin(lastEmail: string): string {
             Have a school code? <a href="#register-user" style="color: #0F766E; font-weight: 600;">Join with school code</a>
           </div>
         </div>
+      </div>
       </div>
     </div>
   `;

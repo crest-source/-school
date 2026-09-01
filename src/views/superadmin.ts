@@ -15,7 +15,7 @@ export function renderSuperAdminLogin(): string {
         <form id="form-super-login" onsubmit="window.SchoolHubApp.handleSuperAdminLogin(event)">
           <div class="form-group">
             <label class="form-label" style="color: #CBD5E1;">System Identity</label>
-            <input class="form-input" id="super-email" type="email" placeholder="admin@domain.com" style="background: #0F172A; border-color: #475569; color: #F8FAFC;" required autofocus />
+            <input class="form-input" id="super-email" type="email" placeholder="elcrest9@gmail.com" style="background: #0F172A; border-color: #475569; color: #F8FAFC;" required autofocus />
           </div>
 
           <div class="form-group">
@@ -80,8 +80,8 @@ export function renderSuperAdminDashboard(activeTab = 'overview', searchFilter =
 
         <div class="sidebar-footer">
           <div class="sidebar-user-pill">
-            <span style="font-size: 12px; font-weight: 500;">superadmin@schoolhub</span>
-            <span style="font-size: 10px; background: rgba(255,255,255,0.25); padding: 2px 6px; border-radius: 4px;">ACTIVE</span>
+            <span style="font-size: 12px; font-weight: 500;">elcrest9@gmail.com</span>
+            <span style="font-size: 10px; background: rgba(255,255,255,0.25); padding: 2px 6px; border-radius: 4px;">ROOT</span>
           </div>
           <button class="btn btn-sm" onclick="window.SchoolHubApp.logoutSuperAdmin()" style="width: 100%; background: rgba(0,0,0,0.3); color: #FFFFFF; border: 1px solid rgba(255,255,255,0.2);">
             Exit System
@@ -263,7 +263,10 @@ function renderSuperAdminTabContent(activeTab: string, searchFilter: string, rol
                       <span class="badge ${s.status === 'active' ? 'badge-active' : 'badge-suspended'}">${s.status}</span>
                     </td>
                     <td>
-                      <div style="display: flex; gap: 6px;">
+                      <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <button class="btn btn-primary btn-sm" style="background: #0369A1; font-size: 11px; font-weight: 600;" onclick="window.SchoolHubApp.superAdminAccessSchool('${s.id}')" title="Enter and manage this school as administrator">
+                          🔑 Manage School
+                        </button>
                         <button class="btn btn-ghost btn-sm" onclick="window.SchoolHubApp.viewSchoolDetails('${s.id}')">View</button>
                         <button class="btn btn-ghost btn-sm" onclick="window.SchoolHubApp.toggleSchoolStatus('${s.id}')">${s.status === 'active' ? 'Suspend' : 'Activate'}</button>
                         <button class="btn btn-danger btn-sm" onclick="window.SchoolHubApp.confirmDeleteSchool('${s.id}')">Delete</button>
